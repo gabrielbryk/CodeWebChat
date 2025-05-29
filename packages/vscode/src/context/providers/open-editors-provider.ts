@@ -7,8 +7,7 @@ import { ignored_extensions } from '../constants/ignored-extensions'
 import { should_ignore_file } from '../utils/extension-utils'
 
 export class OpenEditorsProvider
-  implements vscode.TreeDataProvider<FileItem>, vscode.Disposable
-{
+  implements vscode.TreeDataProvider<FileItem>, vscode.Disposable {
   private _on_did_change_tree_data: vscode.EventEmitter<
     FileItem | undefined | null | void
   > = new vscode.EventEmitter<FileItem | undefined | null | void>()
@@ -55,7 +54,7 @@ export class OpenEditorsProvider
 
     // Listen for file content changes
     this._file_change_watcher = vscode.workspace.onDidChangeTextDocument(
-      (e) => {
+      async (e) => {
         if (e.document.isDirty) return // Only process saved changes
 
         const file_path = e.document.uri.fsPath
@@ -403,6 +402,7 @@ export class OpenEditorsProvider
         false, // not a symlink
         true, // is an open file
         token_count,
+        undefined,
         description
       )
 

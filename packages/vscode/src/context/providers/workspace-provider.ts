@@ -41,36 +41,37 @@ export class WorkspaceProvider
   private partially_checked_dirs: Set<string> = new Set()
   // Track which workspace root a file belongs to
   private file_workspace_map: Map<string, string> = new Map()
+  private _is_initialized = false;
+  private _initialization_promise: Promise<void>;
 
   constructor(workspace_folders: vscode.WorkspaceFolder[]) {
     this.workspace_roots = workspace_folders.map((folder) => folder.uri.fsPath)
     this.workspace_names = workspace_folders.map((folder) => folder.name)
-    this.load_all_gitignore_files() // Load all .gitignore files on initialization
-    this.load_ignored_extensions()
-
-    // Initialize file to workspace mapping
-    this.update_file_workspace_mapping()
+    
+    this._initialization_promise = this._initialize().catch(error => {
+        Logger.error({ function_name: 'WorkspaceProvider.constructor', message: 'Initialization failed', data: error });
+    });
 
     // Create a file system watcher for general file changes
     this.watcher = vscode.workspace.createFileSystemWatcher('**/*')
-    this.watcher.onDidCreate((uri) => this.handle_file_create(uri.fsPath))
+    this.watcher.onDidCreate(async (uri) => this.handle_file_create(uri.fsPath))
     this.watcher.onDidChange((uri) => this.on_file_system_changed(uri.fsPath))
     this.watcher.onDidDelete((uri) => this.on_file_system_changed(uri.fsPath))
 
     // Watch for .gitignore changes specifically
     this.gitignore_watcher =
       vscode.workspace.createFileSystemWatcher('**/.gitignore')
-    this.gitignore_watcher.onDidCreate(() => this.load_all_gitignore_files())
-    this.gitignore_watcher.onDidChange(() => this.load_all_gitignore_files())
-    this.gitignore_watcher.onDidDelete(() => this.load_all_gitignore_files())
+    this.gitignore_watcher.onDidCreate(async () => this.load_all_gitignore_files())
+    this.gitignore_watcher.onDidChange(async () => this.load_all_gitignore_files())
+    this.gitignore_watcher.onDidDelete(async () => this.load_all_gitignore_files())
 
     // Listen for configuration changes
     this.config_change_handler = vscode.workspace.onDidChangeConfiguration(
-      (event) => {
+      async (event) => {
         if (event.affectsConfiguration('codeWebChat.ignoredExtensions')) {
           const old_ignored_extensions = new Set(this.ignored_extensions)
-          this.load_ignored_extensions()
-          this.uncheck_ignored_files(old_ignored_extensions)
+          this.load_ignored_extensions() // This is sync
+          await this.uncheck_ignored_files(old_ignored_extensions) // Made async
           this.refresh()
         }
       }
@@ -85,14 +86,21 @@ export class WorkspaceProvider
     })
   }
 
+  private async _initialize(): Promise<void> {
+    await this.load_all_gitignore_files();
+    await this.update_file_workspace_mapping();
+    this._is_initialized = true;
+    this.refresh();
+  }
+
   // New method to update the file to workspace mapping
-  private update_file_workspace_mapping(): void {
+  private async update_file_workspace_mapping(): Promise<void> {
     this.file_workspace_map.clear()
 
     // For each workspace root, map all files to that workspace
     for (const workspace_root of this.workspace_roots) {
       try {
-        const files = this.find_all_files(workspace_root)
+        const files = await this.find_all_files(workspace_root) // Now async
         for (const file of files) {
           this.file_workspace_map.set(file, workspace_root)
         }
@@ -107,10 +115,10 @@ export class WorkspaceProvider
   }
 
   // Helper method to find all files recursively in a directory
-  public find_all_files(dir_path: string): string[] {
+  public async find_all_files(dir_path: string): Promise<string[]> {
     let results: string[] = []
     try {
-      const entries = fs.readdirSync(dir_path, { withFileTypes: true })
+      const entries = await fs.promises.readdir(dir_path, { withFileTypes: true })
 
       for (const entry of entries) {
         const full_path = path.join(dir_path, entry.name)
@@ -126,7 +134,7 @@ export class WorkspaceProvider
 
         if (entry.isDirectory()) {
           // Recursively search subdirectories
-          results = results.concat(this.find_all_files(full_path))
+          results = results.concat(await this.find_all_files(full_path))
         } else if (entry.isFile()) {
           results.push(full_path)
         }
@@ -171,7 +179,7 @@ export class WorkspaceProvider
   }
 
   // New method to uncheck files that are now ignored
-  private uncheck_ignored_files(old_ignored_extensions?: Set<string>): void {
+  private async uncheck_ignored_files(old_ignored_extensions?: Set<string>): Promise<void> {
     // Get list of checked files
     const checked_files = this.get_checked_files()
 
@@ -196,7 +204,7 @@ export class WorkspaceProvider
       let dir_path = path.dirname(file_path)
       const workspace_root = this.get_workspace_root_for_file(file_path)
       while (workspace_root && dir_path.startsWith(workspace_root)) {
-        this.update_parent_state(dir_path)
+        await this.update_parent_state(dir_path) // Now async
         dir_path = path.dirname(dir_path)
       }
     }
@@ -327,7 +335,7 @@ export class WorkspaceProvider
     return path.basename(root_path)
   }
 
-  private on_file_system_changed(changed_file_path?: string): void {
+  private async on_file_system_changed(changed_file_path?: string): Promise<void> {
     if (changed_file_path) {
       // Clear token count for the specific file
       this.file_token_counts.delete(changed_file_path)
@@ -375,7 +383,7 @@ export class WorkspaceProvider
     }
 
     // Update the file to workspace mapping
-    this.update_file_workspace_mapping()
+    await this.update_file_workspace_mapping();
 
     // Refresh the tree view first to update its structure
     await this.refresh()
@@ -494,7 +502,7 @@ export class WorkspaceProvider
         let dir_path = path.dirname(file_path)
         const workspace_root = this.get_workspace_root_for_file(file_path)
         while (workspace_root && dir_path.startsWith(workspace_root)) {
-          this.update_parent_state(dir_path)
+          this.update_parent_state(dir_path) // This is now async, but clear_checks itself is sync. This might need adjustment if strict async is needed here.
           dir_path = path.dirname(dir_path)
         }
       }
@@ -596,6 +604,9 @@ export class WorkspaceProvider
   }
 
   async getChildren(element?: FileItem): Promise<FileItem[]> {
+    if (!this._is_initialized) {
+      await this._initialization_promise;
+    }
     if (this.workspace_roots.length == 0) {
       vscode.window.showInformationMessage('No workspace folder found.')
       return []
@@ -1179,6 +1190,8 @@ export class WorkspaceProvider
   }
 
   public async set_checked_files(file_paths: string[]): Promise<void> {
+    await this._initialization_promise; // Ensure provider is initialized
+
     // Clear existing checks
     this.checked_items.clear()
     this.partially_checked_dirs.clear()
@@ -1247,7 +1260,7 @@ export class WorkspaceProvider
       )
 
       try {
-        const gitignore_content = fs.readFileSync(gitignore_path, 'utf-8')
+        const gitignore_content = await fs.promises.readFile(gitignore_path, 'utf-8')
         const rules_with_prefix = gitignore_content
           .split('\n')
           .map((rule) => rule.trim())
@@ -1281,6 +1294,12 @@ export class WorkspaceProvider
   }
 
   public is_excluded(relative_path: string): boolean {
+    if (!this._is_initialized) {
+        // This case should ideally be prevented by awaiting _initialization_promise
+        // in public methods that rely on gitignore.
+        Logger.warn({ function_name: 'is_excluded', message: 'Attempted to check exclusion before gitignore loaded.' });
+        return false; // Or throw an error, or return a default
+    }
     if (!relative_path || relative_path.trim() === '') {
       return false // Skip empty paths instead of trying to process them
     }
@@ -1314,6 +1333,7 @@ export class WorkspaceProvider
   }
 
   public async check_all(): Promise<void> {
+    await this._initialization_promise;
     // Check all workspace roots
     for (const workspace_root of this.workspace_roots) {
       this.checked_items.set(
@@ -1348,6 +1368,7 @@ export class WorkspaceProvider
   }
 
   public async get_checked_files_token_count(): Promise<number> {
+    await this._initialization_promise;
     const checked_files = this.get_checked_files()
     let total = 0
 

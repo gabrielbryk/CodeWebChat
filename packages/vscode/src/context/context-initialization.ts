@@ -54,7 +54,15 @@ export function context_initialization(context: vscode.ExtensionContext): {
   )
 
   const update_activity_bar_badge_token_count = async () => {
-    let total_token_count = 0
+    let total_token_count = 0;
+    // Set a temporary loading state for the badge if it's not already showing a number
+    // This helps indicate activity during potentially long token calculations.
+    if (workspace_view && (workspace_view.badge === undefined || isNaN(Number(workspace_view.badge.value)))) {
+      workspace_view.badge = {
+        value: 0, // Using '...' as a simple loading indicator
+        tooltip: 'Calculating total tokens...'
+      };
+    }
 
     if (workspace_provider) {
       total_token_count +=
@@ -107,8 +115,8 @@ export function context_initialization(context: vscode.ExtensionContext): {
     })
 
     // Fix for issue when the collapsed item has some of its children selected
-    view.onDidCollapseElement(() => {
-      workspace_provider!.refresh()
+    view.onDidCollapseElement(async () => { // Added async here
+      await workspace_provider!.refresh() // Added await here
     })
   }
 
@@ -291,7 +299,7 @@ export function context_initialization(context: vscode.ExtensionContext): {
 
   // Update when workspace folders change
   context.subscriptions.push(
-    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+    vscode.workspace.onDidChangeWorkspaceFolders(async () => { // Added async here
       // Reinitialize the workspace provider with the new workspace folders
       if (vscode.workspace.workspaceFolders) {
         // Create a new provider with the updated workspace folders
@@ -312,7 +320,7 @@ export function context_initialization(context: vscode.ExtensionContext): {
 
           // Restore checked files state
           if (checked_files.length > 0) {
-            workspace_provider.set_checked_files(checked_files)
+            await workspace_provider.set_checked_files(checked_files) // Added await
           }
         } else {
           workspace_provider = new_workspace_provider
@@ -351,8 +359,8 @@ export function context_initialization(context: vscode.ExtensionContext): {
   )
 
   // Fix for issue when the collapsed item has some of its children selected
-  workspace_view.onDidCollapseElement(() => {
-    workspace_provider!.refresh()
+  workspace_view.onDidCollapseElement(async () => { // Added async here
+    await workspace_provider!.refresh() // Added await here
   })
 
   // Set up event listener for when the open editors provider initializes
