@@ -174,7 +174,7 @@ Please be welcomed in [discussions](https://github.com/robertpiosik/CodeWebChat/
 
 ## Donations
 
-If you find CWC helpful, please consider buying the author a [coffee](https://buymeacoffee.com/robertpiosik). Thank you for your support! 🙏
+If you find CWC helpful, please consider a [donation](https://buymeacoffee.com/robertpiosik). Thank you!
 
 **BTC:** bc1qfzajl0fc4347knr6n5hhuk52ufr4sau04su5te
 
