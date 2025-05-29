@@ -19,7 +19,7 @@ async function resolve_glob_patterns(
 
   // Get all files from workspace provider's cache
   for (const root of workspace_provider.getWorkspaceRoots()) {
-    const files = workspace_provider.find_all_files(root)
+    const files = await workspace_provider.find_all_files(root)
     files.forEach((file) => all_files_in_cache.add(file))
   }
 
@@ -286,16 +286,14 @@ export function select_saved_context_command(
         const quick_pick_storage_options = [
           {
             label: 'Workspace State',
-            description: `${internal_contexts.length} ${
-              internal_contexts.length == 1 ? 'context' : 'contexts'
-            }`,
+            description: `${internal_contexts.length} ${internal_contexts.length == 1 ? 'context' : 'contexts'
+              }`,
             value: 'internal'
           },
           {
             label: 'JSON File (.vscode/contexts.json)',
-            description: `${file_contexts.length} ${
-              file_contexts.length == 1 ? 'context' : 'contexts'
-            }`,
+            description: `${file_contexts.length} ${file_contexts.length == 1 ? 'context' : 'contexts'
+              }`,
             value: 'file'
           }
         ]
@@ -384,9 +382,8 @@ export function select_saved_context_command(
         const create_quick_pick_items = (contexts: SavedContext[]) => {
           return contexts.map((context) => ({
             label: context.name,
-            description: `${context.paths.length} ${
-              context.paths.length == 1 ? 'path' : 'paths'
-            }`,
+            description: `${context.paths.length} ${context.paths.length == 1 ? 'path' : 'paths'
+              }`,
             context,
             buttons: [edit_button, delete_button]
           }))
@@ -395,11 +392,10 @@ export function select_saved_context_command(
         // Create QuickPick with buttons
         const quick_pick = vscode.window.createQuickPick()
         quick_pick.items = create_quick_pick_items(contexts_to_use)
-        quick_pick.placeholder = `Select saved context (from ${
-          context_source == 'internal'
+        quick_pick.placeholder = `Select saved context (from ${context_source == 'internal'
             ? 'Workspace State'
             : '.vscode/contexts.json'
-        })`
+          })`
 
         // Create a promise to be resolved when an item is picked or the quick pick is hidden
         const quick_pick_promise = new Promise<
@@ -408,8 +404,8 @@ export function select_saved_context_command(
           quick_pick.onDidAccept(() => {
             const selectedItem = quick_pick
               .activeItems[0] as vscode.QuickPickItem & {
-              context: SavedContext
-            }
+                context: SavedContext
+              }
             quick_pick.hide()
             resolve(selectedItem)
           })

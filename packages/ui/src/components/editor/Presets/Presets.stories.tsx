@@ -25,7 +25,7 @@ export const Multiple = () => {
       on_preset_click={(name) => {
         console.log('on_preset_click', name)
       }}
-      disabled={false}
+      is_disabled={false}
       selected_presets={[]}
       selected_code_completion_presets={[]}
       on_preset_delete={(name) => console.log('on_preset_delete', name)}
@@ -49,7 +49,7 @@ export const CodeCompletionsMode = () => {
       on_preset_click={(name) => {
         console.log('on_preset_click', name)
       }}
-      disabled={false}
+      is_disabled={false}
       selected_presets={[]}
       selected_code_completion_presets={[]}
       on_preset_delete={(name) => console.log('on_preset_delete', name)}
