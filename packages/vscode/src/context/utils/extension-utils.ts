@@ -38,3 +38,10 @@ export function should_ignore_file(
   // Check if any of the extension variations should be ignored
   return extensions.some((ext) => ignored_extensions.has(ext))
 }
+
+
+export function format_token_count(count: number | 'loading' | undefined): string {
+  if (count === 'loading') return '…';
+  if (count === undefined || count === 0) return ''; // Don't display 0
+  return count >= 1000 ? `${Math.floor(count / 1000)}k` : `${count}`;
+}

@@ -19,7 +19,7 @@ async function resolve_glob_patterns(
 
   // Get all files from workspace provider's cache
   for (const root of workspace_provider.getWorkspaceRoots()) {
-    const files = await workspace_provider.find_all_files(root)
+    const files = await workspace_provider.find_all_files(root, root)
     files.forEach((file) => all_files_in_cache.add(file))
   }
 
@@ -393,8 +393,8 @@ export function select_saved_context_command(
         const quick_pick = vscode.window.createQuickPick()
         quick_pick.items = create_quick_pick_items(contexts_to_use)
         quick_pick.placeholder = `Select saved context (from ${context_source == 'internal'
-            ? 'Workspace State'
-            : '.vscode/contexts.json'
+          ? 'Workspace State'
+          : '.vscode/contexts.json'
           })`
 
         // Create a promise to be resolved when an item is picked or the quick pick is hidden

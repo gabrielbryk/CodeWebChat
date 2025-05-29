@@ -4,7 +4,7 @@ import * as path from 'path'
 import { FileItem } from './workspace-provider'
 import { SharedFileState } from '../shared-file-state'
 import { ignored_extensions } from '../constants/ignored-extensions'
-import { should_ignore_file } from '../utils/extension-utils'
+import { format_token_count, should_ignore_file } from '../utils/extension-utils'
 
 export class OpenEditorsProvider
   implements vscode.TreeDataProvider<FileItem>, vscode.Disposable {
@@ -257,10 +257,7 @@ export class OpenEditorsProvider
 
     if (token_count !== undefined) {
       // Format token count for display (e.g., 1.2k for 1,200)
-      const formatted_token_count =
-        token_count >= 1000
-          ? `${Math.floor(token_count / 1000)}k`
-          : `${token_count}`
+      const formatted_token_count = format_token_count(token_count)
 
       // Add token count to description
       if (element.description) {

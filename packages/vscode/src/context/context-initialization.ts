@@ -28,16 +28,12 @@ export function context_initialization(context: vscode.ExtensionContext): {
     return {}
   }
 
-  // Pass all workspace folders to the workspace provider
   workspace_provider = new WorkspaceProvider(workspace_folders as any)
-
-  // Use the first workspace folder for open editors provider
   const open_editors_provider = new OpenEditorsProvider(
     workspace_folders as any
   )
   const websites_provider = new WebsitesProvider()
 
-  // Create websites tree view
   const websites_view = vscode.window.createTreeView(
     'codeWebChatViewWebsites',
     {
@@ -55,38 +51,41 @@ export function context_initialization(context: vscode.ExtensionContext): {
 
   const update_activity_bar_badge_token_count = async () => {
     let total_token_count = 0;
-    // Set a temporary loading state for the badge if it's not already showing a number
-    // This helps indicate activity during potentially long token calculations.
-    if (workspace_view && (workspace_view.badge === undefined || isNaN(Number(workspace_view.badge.value)))) {
-      workspace_view.badge = {
-        value: 0, // Using '...' as a simple loading indicator
-        tooltip: 'Calculating total tokens...'
-      };
-    }
+    let is_loading = false;
 
     if (workspace_provider) {
-      total_token_count +=
-        await workspace_provider.get_checked_files_token_count()
-    }
-
-    if (websites_provider) {
-      total_token_count += websites_provider.get_checked_websites_token_count()
-    }
-
-    if (workspace_view) {
-      workspace_view.badge = {
-        value: total_token_count,
-        tooltip: total_token_count
-          ? `About ${total_token_count} tokens in context`
-          : ''
+      const ws_tokens = await workspace_provider.get_checked_files_token_count();
+      if (ws_tokens === undefined) { // assuming 'loading' is represented by undefined or a specific string
+          is_loading = true;
+      } else {
+          total_token_count += ws_tokens;
       }
     }
 
-    // Emit the token count event for chat box
+    if (websites_provider) {
+      // Assuming get_checked_websites_token_count is synchronous or we make it async
+      const web_tokens = websites_provider.get_checked_websites_token_count();
+      total_token_count += web_tokens; // Add if not 'loading'
+    }
+    
+    if (workspace_view) {
+        if (is_loading && total_token_count === 0) { // Show loading only if truly no tokens AND some are loading
+             workspace_view.badge = {
+                value: 0, // Or a spinner icon if supported, e.g. $(loading) if that works for badges
+                tooltip: 'Calculating total tokens...'
+            };
+        } else {
+            workspace_view.badge = {
+                value: total_token_count,
+                tooltip: total_token_count
+                ? `About ${total_token_count} tokens in context${is_loading ? ' (still calculating some...)' : ''}`
+                : (is_loading ? 'Calculating tokens...' : '')
+            };
+        }
+    }
     token_count_emitter.emit('token-count-updated')
   }
 
-  // Handle checkbox state changes for websites
   websites_view.onDidChangeCheckboxState(async (e) => {
     for (const [item, state] of e.items) {
       await websites_provider!.update_check_state(item as WebsiteItem, state)
@@ -94,39 +93,39 @@ export function context_initialization(context: vscode.ExtensionContext): {
     update_activity_bar_badge_token_count()
   })
 
-  // Initialize shared state
   const shared_state = SharedFileState.getInstance()
   shared_state.setProviders(workspace_provider, open_editors_provider)
-
-  // Add shared state to disposables
   context.subscriptions.push({
     dispose: () => shared_state.dispose()
   })
 
-  // Function to register workspace tree view checkbox handlers
   const register_workspace_view_handlers = (
     view: vscode.TreeView<FileItem>
   ) => {
-    // Handle checkbox state changes asynchronously for file tree
     view.onDidChangeCheckboxState(async (e) => {
       for (const [item, state] of e.items) {
         await workspace_provider!.update_check_state(item, state)
       }
+      // update_activity_bar_badge_token_count(); // Covered by onDidChangeCheckedFiles
     })
-
-    // Fix for issue when the collapsed item has some of its children selected
-    view.onDidCollapseElement(async () => { // Added async here
-      await workspace_provider!.refresh() // Added await here
+    view.onDidCollapseElement(async (e) => { // Added async here
+      // No specific refresh needed on collapse for lazy loading, expansion handles it.
+      // However, if token display needs update based on collapse, that logic would go here.
     })
+    view.onDidExpandElement(async (e) => {
+        // When an element is expanded, its children are fetched by getChildren.
+        // We might want to trigger a token recalculation for the expanded element
+        // if its token count was previously 'loading' or an estimate.
+        if (e.element.isDirectory) {
+             await workspace_provider!.refresh(e.element); // Refresh the expanded item to update its description
+        }
+    });
   }
 
-  // Create two separate tree views
   workspace_view = vscode.window.createTreeView('codeWebChatViewWorkspace', {
     treeDataProvider: workspace_provider,
     manageCheckboxStateManually: true
   })
-
-  // Register handlers for workspace view
   register_workspace_view_handlers(workspace_view)
 
   const open_editors_view = vscode.window.createTreeView(
@@ -137,7 +136,6 @@ export function context_initialization(context: vscode.ExtensionContext): {
     }
   )
 
-  // Add providers and treeViews to ensure proper disposal
   context.subscriptions.push(
     workspace_provider,
     open_editors_provider,
@@ -145,11 +143,9 @@ export function context_initialization(context: vscode.ExtensionContext): {
     open_editors_view
   )
 
-  // Register the commands
   context.subscriptions.push(
     vscode.commands.registerCommand('codeWebChat.copyContext', async () => {
       let context_text = ''
-
       try {
         context_text = await files_collector.collect_files()
       } catch (error: any) {
@@ -159,23 +155,21 @@ export function context_initialization(context: vscode.ExtensionContext): {
         )
         return
       }
-
       if (context_text == '') {
         vscode.window.showWarningMessage(
           'No files or websites selected or open.'
         )
         return
       }
-
       context_text = `<files>\n${context_text}</files>\n`
       await vscode.env.clipboard.writeText(context_text)
       vscode.window.showInformationMessage(`Context copied to clipboard.`)
     }),
     vscode.commands.registerCommand('codeWebChat.collapseFolders', async () => {
-      workspace_view.dispose()
-      await new Promise((resolve) => setTimeout(resolve, 0))
-
-      // Recreate the tree view
+      // This command might need to be rethought with lazy loading.
+      // For now, it will dispose and recreate the view, which effectively collapses all.
+      workspace_view.dispose() 
+      await new Promise(resolve => setTimeout(resolve, 0)); // Ensure disposal completes
       workspace_view = vscode.window.createTreeView(
         'codeWebChatViewWorkspace',
         {
@@ -183,11 +177,7 @@ export function context_initialization(context: vscode.ExtensionContext): {
           manageCheckboxStateManually: true
         }
       )
-
-      // Re-register event handlers for the new view
       register_workspace_view_handlers(workspace_view)
-
-      // Add the new view to subscriptions
       context.subscriptions.push(workspace_view)
     }),
     vscode.commands.registerCommand('codeWebChat.clearChecks', () => {
@@ -217,10 +207,7 @@ export function context_initialization(context: vscode.ExtensionContext): {
           vscode.ViewColumn.One,
           { enableScripts: false }
         )
-
         const rendered_content = marked.parse(website.content)
-
-        // Create a simple HTML preview
         panel.webview.html = `
             <!DOCTYPE html>
             <html lang="en">
@@ -256,14 +243,13 @@ export function context_initialization(context: vscode.ExtensionContext): {
     )
   )
 
-  // Handle checkbox state changes asynchronously for open editors
   open_editors_view.onDidChangeCheckboxState(async (e) => {
     for (const [item, state] of e.items) {
       await open_editors_provider!.update_check_state(item, state)
     }
+    // update_activity_bar_badge_token_count(); // Covered by onDidChangeCheckedFiles
   })
 
-  // Subscribe to the onDidChangeCheckedFiles events from both providers
   context.subscriptions.push(
     workspace_provider.onDidChangeCheckedFiles(() => {
       update_activity_bar_badge_token_count()
@@ -271,65 +257,45 @@ export function context_initialization(context: vscode.ExtensionContext): {
     open_editors_provider.onDidChangeCheckedFiles(() => {
       update_activity_bar_badge_token_count()
     }),
-    // Also subscribe to websites provider changes
     websites_provider.onDidChangeCheckedWebsites(() => {
       update_activity_bar_badge_token_count()
     }),
-    // Fixes badge not updating when websites list changes
     websites_provider.onDidChangeTreeData(() => {
       update_activity_bar_badge_token_count()
     })
   )
 
-  // Update badge when tabs change with debouncing to avoid multiple updates
   let tab_change_timeout: NodeJS.Timeout | null = null
   context.subscriptions.push(
     vscode.window.tabGroups.onDidChangeTabs(() => {
-      // Clear previous timeout if it exists
       if (tab_change_timeout) {
         clearTimeout(tab_change_timeout)
       }
-      // Set a new timeout to update after a short delay
       tab_change_timeout = setTimeout(() => {
         update_activity_bar_badge_token_count()
         tab_change_timeout = null
-      }, 100) // 100ms debounce
+      }, 100)
     })
   )
 
-  // Update when workspace folders change
   context.subscriptions.push(
-    vscode.workspace.onDidChangeWorkspaceFolders(async () => { // Added async here
-      // Reinitialize the workspace provider with the new workspace folders
+    vscode.workspace.onDidChangeWorkspaceFolders(async () => {
       if (vscode.workspace.workspaceFolders) {
-        // Create a new provider with the updated workspace folders
         const new_workspace_provider = new WorkspaceProvider(
           vscode.workspace.workspaceFolders as any
         )
-
-        // Transfer checked state if possible
         if (workspace_provider) {
-          // Get currently checked files to restore them after refresh
           const checked_files = workspace_provider.get_checked_files()
-
-          // Dispose the old provider
           workspace_provider.dispose()
-
-          // Replace with the new provider
           workspace_provider = new_workspace_provider
-
-          // Restore checked files state
           if (checked_files.length > 0) {
-            await workspace_provider.set_checked_files(checked_files) // Added await
+            await workspace_provider.set_checked_files(checked_files)
           }
         } else {
           workspace_provider = new_workspace_provider
         }
 
-        // Update the tree data provider
         const old_view = workspace_view
-
-        // Create a new tree view with the updated provider
         workspace_view = vscode.window.createTreeView(
           'codeWebChatViewWorkspace',
           {
@@ -337,46 +303,30 @@ export function context_initialization(context: vscode.ExtensionContext): {
             manageCheckboxStateManually: true
           }
         )
-
-        // Re-register event handlers for the new view
         register_workspace_view_handlers(workspace_view)
-
-        // Dispose the old view
         old_view.dispose()
-
-        // Add the new view to subscriptions
         context.subscriptions.push(workspace_view)
 
-        // Update the shared file state
         if (open_editors_provider) {
           shared_state.setProviders(workspace_provider, open_editors_provider)
         }
-
-        // Update token count
         update_activity_bar_badge_token_count()
       }
     })
   )
 
-  // Fix for issue when the collapsed item has some of its children selected
-  workspace_view.onDidCollapseElement(async () => { // Added async here
-    await workspace_provider!.refresh() // Added await here
-  })
-
-  // Set up event listener for when the open editors provider initializes
   context.subscriptions.push(
     open_editors_provider.onDidChangeTreeData(() => {
-      // Update the badge after the open editors provider refreshes
       if (open_editors_provider!.is_initialized()) {
         update_activity_bar_badge_token_count()
       }
     })
   )
 
-  // Also schedule a delayed update for initial badge display
+  // Initial badge update
   setTimeout(() => {
     update_activity_bar_badge_token_count()
-  }, 1000) // Wait for 1 second to ensure VS Code has fully loaded
+  }, 1000) 
 
   return {
     workspace_provider,
